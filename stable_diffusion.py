@@ -74,8 +74,8 @@ def main():
         print(f"\n{'='*50}")
         print(f"Training on genus: {genus}")
         print(f"{'='*50}\n")
-        output_dir = output + genus
-        train_data_dir = train + genus
+        output_dir = os.path.join(output, genus)
+        train_data_dir = os.path.join(train, genus)
         os.makedirs(output_dir, exist_ok=True)
 
         # load data
