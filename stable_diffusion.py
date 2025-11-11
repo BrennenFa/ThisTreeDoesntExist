@@ -36,14 +36,13 @@ def transform(examples):
         transforms.ToTensor(),
         transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
-    
-    images = []
+
+    pixel_values = []
     for img in examples["image"]:
         if not isinstance(img, Image.Image):
             img = Image.fromarray(np.array(img))
-        images.append(transform_fn(img))
-    
-    examples["pixel_values"] = images
+        pixel_values.append(transform_fn(img))
+    examples["pixel_values"] = pixel_values
     return examples
 
 
@@ -69,7 +68,8 @@ def main():
     selected_genera = config["selected_genera"]
 
     # model to use
-    model_id = "runwayml/stable-diffusion-v1-5"
+    model_id = config["model_path"]
+
     for genus in selected_genera:
         print(f"\n{'='*50}")
         print(f"Training on genus: {genus}")
@@ -80,7 +80,10 @@ def main():
 
         # load data
         dataset = load_dataset("imagefolder", data_dir=train_data_dir, split="train")
-        dataset = dataset.map(transform)
+        dataset = dataset.map(transform, batched=True)
+        dataset = dataset.remove_columns(["image"])
+        dataset.set_format(type="torch", columns=["pixel_values"])
+
         print("data loaded")
 
 
@@ -89,9 +92,14 @@ def main():
         pipe = StableDiffusionPipeline.from_pretrained(
             model_id,
             torch_dtype=torch.float16
-        ).to("cuda")
+        )
+        
+        pipe.enable_model_cpu_offload()
+        pipe.enable_attention_slicing()
+        pipe.vae.enable_slicing()
 
         unet = pipe.unet
+        unet.enable_gradient_checkpointing()
         optimizer = optim.AdamW(unet.parameters(), lr=learning_rate)
         accelerator = Accelerator(mixed_precision="fp16")
 
@@ -109,8 +117,8 @@ def main():
                 break
             # Random noise
 
-            pixel_values = torch.stack(batch["pixel_values"]).to("cuda", dtype=torch.float16)
-        
+            pixel_values = batch["pixel_values"].to("cuda", dtype=torch.float16)
+
             with torch.no_grad():
                 latents = vae.encode(pixel_values).latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
@@ -136,7 +144,7 @@ def main():
             accelerator.backward(loss)
             optimizer.step()
         
-
+            torch.cuda.empty_cache()
 
             if step % 50 == 0:
                 print(f"Step {step}/{num_train_steps} | Loss: {loss.item():.4f}")
@@ -149,7 +157,8 @@ def main():
         pipe = StableDiffusionPipeline.from_pretrained(
             output_dir,
             torch_dtype=torch.float16
-        ).to("cuda")
+        )
+        pipe.enable_model_cpu_offload()
 
         prompt = "Generate a tree of this genera"
         image = pipe(prompt, guidance_scale=7.5, num_inference_steps=30).images[0]
@@ -158,3 +167,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
