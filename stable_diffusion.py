@@ -105,7 +105,6 @@ def main():
         print(f"Dataset loaded: {len(dataset)} images")
 
         # load model
-        print("Loading model...")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # diffusion pipeline with  low_cpu_mem_usage
@@ -116,7 +115,7 @@ def main():
         )
 
         # Keep components on CPU initially
-        # vae - autoencorder
+        # vae - autoencorder -> generate latents from images
         vae = pipe.vae
         vae.eval()
         vae.requires_grad_(False)
@@ -128,7 +127,7 @@ def main():
         # Get UNet and apply LoRA before moving to GPU
         # unet for facilitating diffusion
         unet = pipe.unet
-        print("Applying LoRA to UNet...")
+        print("Applying LoRA to UNet")
         unet = get_peft_model(unet, lora_config)
 
         # Clear pipeline to free memory before moving anything to GPU
@@ -136,13 +135,13 @@ def main():
         gc.collect()
         torch.cuda.empty_cache()
 
-        print("Pipeline cleared. Moving UNet to GPU...")
+        print("Pipeline cleared, moving UNet to GPU")
 
         # Move UNet to GPU
         unet = unet.to(device)
         unet.train()
         unet.enable_gradient_checkpointing()
-        print("✓ UNet on GPU with gradient checkpointing")
+        print("UNet on GPU with gradient checkpointing")
         
         # 8-bit optimizer for efficiency
         optimizer = bnb.optim.AdamW8bit(unet.parameters(), lr=learning_rate)
@@ -151,7 +150,7 @@ def main():
         # compute text embeddings on CPU, then move to GPU
         from transformers import CLIPTokenizer
         tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
-        prompt = f"a photo of a {genus} tree"
+        prompt = f"a photo of a {genus} tree with its background. Pay special attention to its bark, leaves, and shape"
         with torch.no_grad():
             text_input = tokenizer(
                 prompt,
@@ -159,7 +158,7 @@ def main():
                 padding="max_length",
                 max_length=77
             ).input_ids
-            encoder_hidden_states = text_encoder(text_input)[0].to(device)
+            encoderHiddenStates = text_encoder(text_input)[0].to(device)
 
         print(f"Text embeddings computed and moved to GPU")
 
@@ -223,10 +222,10 @@ def main():
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
                 
                 # Expand encoder hidden states to match batch size
-                encoder_hidden_states_batch = encoder_hidden_states.repeat(latents.shape[0], 1, 1)
+                encoderBatch = encoderHiddenStates.repeat(latents.shape[0], 1, 1)
                 
                 # Forward pass
-                noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states_batch).sample
+                noise_pred = unet(noisy_latents, timesteps, encoderBatch).sample
                 
                 # calculate loss
                 loss = torch.nn.functional.mse_loss(noise_pred, noise)
@@ -351,7 +350,14 @@ def main():
                 f"a {genus} tree in a forest",
                 f"close up photo of {genus} tree bark and leaves",
                 f"a tall {genus} tree",
-                f"{genus} tree in nature"
+                f"{genus} tree",
+                f"a photo of a {genus} tree with its natural surroundings",
+                f"a {genus} tree in its environment",
+                f"a {genus} tree as seen in its natural habitat",
+                f"a {genus} tree including background scenery",
+                f"a {genus} tree in context with its surroundings",
+                f"google streetview {genus} tree",
+
             ]
             for idx, genPrompt in enumerate(prompts):
                 with torch.no_grad():
