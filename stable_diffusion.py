@@ -144,7 +144,7 @@ def main():
         unet.enable_gradient_checkpointing()
         print("✓ UNet on GPU with gradient checkpointing")
         
-        # 8-bit optimizer for memory efficiency
+        # 8-bit optimizer for efficiency
         optimizer = bnb.optim.AdamW8bit(unet.parameters(), lr=learning_rate)
         noise_scheduler = DDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
 
@@ -182,12 +182,12 @@ def main():
                 latents = latents * vae.config.scaling_factor
                 latent_dataset.append(latents.cpu())
 
-        # Move VAE back to CPU and clear it
+        # Move vae back to cpu and clear it
         vae = vae.to("cpu")
         del vae
         gc.collect()
         torch.cuda.empty_cache()
-        print(f"✓ All images pre-encoded to latents, VAE cleared from GPU")
+        print(f"All images pre-encoded to latents, VAE cleared from GPU")
 
         # Create new dataset from latents
         latent_dataset = torch.cat(latent_dataset, dim=0)
@@ -228,10 +228,10 @@ def main():
                 # Forward pass
                 noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states_batch).sample
                 
-                # Calculate loss
+                # calculate loss
                 loss = torch.nn.functional.mse_loss(noise_pred, noise)
                 
-                # Scale loss for gradient accumulation
+                # scale loss for gradient accumulation
                 loss = loss / gradient_accumulation_steps
                 loss.backward()
                 
